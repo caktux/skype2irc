@@ -24,6 +24,8 @@ For `python-skype` I used the version 1.0.31.0 provided at `ppa:skype-wrapper/pp
 CONFIGURE
 ---------
 
+Copy `config.py.sample` to `config.py` and edit that newly created file.
+
 You can configure the IRC servers and Skype chatrooms to mirror in the header of `skype2irc.py`. You may define one IRC server and as many pairs of IRC channels and Skype chatrooms as you like. Skype chatrooms are defined by the blob, which you can obtain writing `/get uri` in a chatroom.
 
 You may need to join your Skype chatroom to be mirrored before actually starting the gateway, because it seems that Skype API isn't always able to successfully join the chatroom using a blob provided (I usually get a timeout error). So make sure you have an access to chatroom using GUI before starting to hassle with the code.

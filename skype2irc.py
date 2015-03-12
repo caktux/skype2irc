@@ -29,6 +29,7 @@
 import sys, signal
 import time, datetime
 import string, textwrap
+import os.path
 
 from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
@@ -36,33 +37,12 @@ from threading import Timer
 
 version = "0.3"
 
-if len(sys.argv) >= 2:
+if os.path.isfile("config.py"):
     # provide path to configuration file as a command line parameter
-
-    execfile(sys.argv[1])
-
+    execfile('config.py')
 else:
     # default configuration for testing purposes    
-
-    servers = [
-    ("irc.freenode.net", 6667),
-    ("hitchcock.freenode.net", 6667),
-    ("leguin.freenode.net", 6667),
-    ("verne.freenode.net", 6667),
-    ("roddenberry.freenode.net", 6667),
-    ]
-
-    nick = "skype-}"
-    botname = "IRC ⟷  Skype".decode('UTF-8')
-    password = None
-    vhost = False
-
-    mirrors = {
-    '#test':
-    'iWwCuTwsjoIglPL3Fbmc_BM95EyK3683btIvrV_B2lQN4agJGCX7-REKzMl7-ruRqvo2RIgcOkQ',
-    }
-
-    colors = True
+    execfile('config.py.sample')
 
 max_irc_msg_len = 442
 ping_interval = 2*60
