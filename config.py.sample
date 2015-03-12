@@ -10,7 +10,7 @@ servers = [
 ]
 
 nick = "skype-bot"
-botname = "IRC ⟷ Skype".decode('UTF-8')
+botname = "skype2irc"
 password = None
 vhost = False
 

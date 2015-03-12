@@ -30,12 +30,17 @@ import sys, signal
 import time, datetime
 import string, textwrap
 import os.path
+import logging
+import logging.config
+import pprint
 
 from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.3"
+version = "0.3.1"
+
+logger = logging.getLogger(__name__)
 
 if os.path.isfile("config.py"):
     # provide path to configuration file as a command line parameter
@@ -81,6 +86,17 @@ MINUTE = 60 * SECOND
 HOUR = 60 * MINUTE
 DAY = 24 * HOUR
 MONTH = 30 * DAY
+
+def isIrcChannel(channel):
+    if isinstance(channel, (str, unicode)) and channel.startswith('#'):
+        return True
+    return False
+
+def broadcast(text, channel):
+    if isIrcChannel(channel):
+        bot.say(channel, text)
+    else:
+        channel.SendMessage(text)
 
 def get_relative_time(dt, display_full = True):
     """Returns relative time compared to now from timestamp"""
@@ -161,7 +177,7 @@ def load_mutes():
                 mutedl[channel].append(name)
                 mutedl[channel].sort()
             f.close()
-            print 'Loaded list of ' + str(len(mutedl[channel])) + ' mutes for ' + channel + '!'
+            logger.info('Loaded list of %s mutes for %s!' % (str(len(mutedl[channel])), channel))
         except:
             pass
 
@@ -173,7 +189,7 @@ def save_mutes(channel):
             f.write(name + '\n')
         mutedl[channel].sort()
         f.close
-        print 'Saved ' + str(len(mutedl[channel])) + ' mutes for ' + channel + '!'
+        logger.info('Saved %s mutes for %s!' % (str(len(mutedl[channel])), channel))
     except:
         pass
 
@@ -189,10 +205,12 @@ def skype_says(chat, msg, edited = False):
         edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full = False)
     else:
         edit_label = ""
+
+    logger.info("%s: %s" % (chat, msg))
     if msgtype == 'EMOTED':
-        bot.say(usemap[chat], emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw)
+        broadcast(emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw, usemap[chat])
     elif msgtype == 'SAID':
-        bot.say(usemap[chat], name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw)
+        broadcast(name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw, usemap[chat])
 
 def OnMessageStatus(Message, Status):
     """Skype message object listener"""
@@ -238,16 +256,16 @@ def decode_irc(raw, preferred_encs = preferred_encodings):
     return res
 
 def signal_handler(signal, frame):
-    print "Ctrl+C pressed!"
+    logger.info("Ctrl+C pressed!")
     if pinger is not None:
-        print "Cancelling the pinger..."
+        logger.info("Cancelling the pinger...")
         pinger.cancel()
     if bot is not None:
-        print "Killing the bot..."
+        logger.info("Killing the bot...")
         for dh in bot.ircobj.handlers["disconnect"]:
             bot.ircobj.remove_global_handler("disconnect", dh[1])
         if len(bot.ircobj.handlers["disconnect"]) == 0:
-            print "Finished."
+            logger.info("Finished.")
             bot.die()
 
 class MirrorBot(SingleServerIRCBot):
@@ -268,14 +286,14 @@ class MirrorBot(SingleServerIRCBot):
     def on_nicknameinuse(self, connection, event):
         """Overcome nick collisions"""
         newnick = connection.get_nickname() + "_"
-        print "Nickname in use, adding underscore", newnick
+        logger.info("Nickname '%s' in use, adding underscore" % newnick)
         connection.nick(newnick)
 
     def routine_ping(self, first_run = False):
         """Ping server to know when try to reconnect to a new server."""
         global pinger
         if not first_run and not self.pong_received:
-            print "Ping reply timeout, disconnecting from", self.connection.get_server_name()
+            logger.info("Ping reply timeout, disconnecting from %s" % self.connection.get_server_name())
             self.disconnect()
             return
         self.pong_received = False
@@ -295,7 +313,7 @@ class MirrorBot(SingleServerIRCBot):
             cur = 0
             for line in lines:
                 for irc_msg in wrapper.wrap(line.strip("\r")):
-                    print target, irc_msg
+                    logger.info(target + ": " + irc_msg)
                     irc_msg += "\r\n"
                     if target not in lastsaid.keys():
                         lastsaid[target] = 0
@@ -310,7 +328,7 @@ class MirrorBot(SingleServerIRCBot):
                     if cur % max_seq_msgs == 0:
                         time.sleep(delay_btw_seqs) # to avoid flood excess
         except ServerNotConnectedError:
-            print "{" +target + " " + msg+"} SKIPPED!"
+            logger.info("{" +target + " " + msg+"} SKIPPED!")
 			
     def notice(self, target, msg):
         """Send notices to channels/nicks"""
@@ -318,7 +336,7 @@ class MirrorBot(SingleServerIRCBot):
 
     def on_welcome(self, connection, event):
         """Do stuff when when welcomed to server"""
-        print "Connected to", self.connection.get_server_name()
+        logger.info("Connected to %s" % self.connection.get_server_name())
         if password is not None:
             bot.say("NickServ", "identify " + password)
         if vhost:
@@ -328,7 +346,7 @@ class MirrorBot(SingleServerIRCBot):
         self.connection.add_global_handler("ctcp", self.handle_ctcp)
         for pair in mirrors:
             connection.join(pair)
-            print "Joined " + pair
+            logger.info("Joined " + pair)
         self.routine_ping(first_run = True)
 
     def on_pubmsg(self, connection, event):
@@ -352,8 +370,12 @@ class MirrorBot(SingleServerIRCBot):
         for raw in args:
             msg += decode_irc(raw) + "\n"
         msg = msg.rstrip("\n")
-        print cut_title(usemap[target].FriendlyName), msg
-        usemap[target].SendMessage(msg)
+        if target in usemap:
+            # logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
+            logger.info(target + ": " + msg)
+            broadcast(msg, usemap[target])
+        else:
+            logger.info("No Skype channel for %s" % target)
 
     def handle_ctcp(self, connection, event):
         """Handle CTCP events for emoting"""
@@ -366,7 +388,7 @@ class MirrorBot(SingleServerIRCBot):
         if target in usemap and args[0]=='ACTION' and len(args) == 2:
             # An emote/action message has been sent to us
             msg = emote_char + " " + source + " " + decode_irc(args[1]) + "\n"
-            print cut_title(usemap[target].FriendlyName), msg
+            logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
             usemap[target].SendMessage(msg)
 
     def on_privmsg(self, connection, event):
@@ -417,7 +439,7 @@ class MirrorBot(SingleServerIRCBot):
                     desc = " * " + user.Handle + " [" + user.FullName
                 else:
                     desc = " - " + user.Handle + " [" + user.FullName
-                #print user.LastOnlineDatetime
+                # logger.info(user.LastOnlineDatetime)
                 last_online = user.LastOnline
                 timestr = ""
                 if last_online > 0:
@@ -434,56 +456,106 @@ class MirrorBot(SingleServerIRCBot):
             bot.say(source, msg)
             
         elif two in ('?', 'HE', 'HI', 'WT'): # HELP
-            bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\nDetails: https://github.com/boamaod/skype2irc#readme")
+            bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\nDetails: https://github.com/caktux/skype2irc#readme")
+
+def configure_logging(loggerlevels=':INFO', verbosity=1):
+    logconfig = dict(
+        version=1,
+        disable_existing_loggers=False,
+        formatters=dict(
+            debug=dict(
+                format='%(message)s'  # '%(threadName)s:%(module)s: %(message)s'
+            ),
+            minimal=dict(
+                format='%(message)s'
+            ),
+        ),
+        handlers=dict(
+            default={
+                'level': 'INFO',
+                'class': 'logging.StreamHandler',
+                'formatter': 'minimal'
+            },
+            verbose={
+                'level': 'DEBUG',
+                'class': 'logging.StreamHandler',
+                'formatter': 'debug'
+            },
+        ),
+        loggers=dict()
+    )
+
+    for loggerlevel in filter(lambda _: ':' in _, loggerlevels.split(',')):
+        name, level = loggerlevel.split(':')
+        logconfig['loggers'][name] = dict(
+            handlers=['verbose'], level=level, propagate=False)
+
+    if len(logconfig['loggers']) == 0:
+        logconfig['loggers'][''] = dict(
+            handlers=['default'],
+            level={0: 'ERROR', 1: 'WARNING', 2: 'INFO', 3: 'DEBUG'}.get(
+                verbosity),
+            propagate=True)
+
+    logging.config.dictConfig(logconfig)
+    logging.debug("Logging config: \n%s\n=====" % pprint.pformat(logconfig, width=4))
+
+configure_logging()
 
 # *** Start everything up! ***
 
 signal.signal(signal.SIGINT, signal_handler)
 
-print "Running", botname, "Gateway Bot", version
+logger.info("Running %s bridge %s" % (botname, version))
 try:
     import Skype4Py
 except:
-    print 'Failed to locate Skype4Py API! Quitting...'
+    logger.info('Failed to locate Skype4Py API! Quitting...')
     sys.exit()
 try:
-    skype = Skype4Py.Skype();
+    skype = Skype4Py.Skype()
 except:
-    print 'Cannot open Skype API! Quitting...'
+    logger.info('Cannot open Skype API! Quitting...')
     sys.exit()
 
 if skype.Client.IsRunning:
-    print 'Skype process found!'
+    logger.info('Skype process found!')
 elif not skype.Client.IsRunning:
     try:
-        print 'Starting Skype process...'
+        logger.info('Starting Skype process...')
         skype.Client.Start()
     except:
-        print 'Failed to start Skype process! Quitting...'
+        logger.info('Failed to start Skype process! Quitting...')
         sys.exit()
 
 try:
-    skype.Attach();
+    skype.Attach()
     skype.OnMessageStatus = OnMessageStatus
     skype.OnNotify = OnNotify
 except:
-    print 'Failed to connect! You have to log in to your Skype instance and enable access to Skype for Skype4Py! Quitting...'
+    logger.info('Failed to connect! You have to log in to your Skype instance and enable access to Skype for Skype4Py! Quitting...')
     sys.exit()
 
-print 'Skype API initialised.'
+logger.info('Skype API initialised.')
 
-topics = "["
-for pair in mirrors:
-    chat = skype.CreateChatUsingBlob(mirrors[pair])
-    topic = chat.FriendlyName
-    print "Joined \"" + topic + "\""
-    topics += cut_title(topic) + "|"
-    usemap[pair] = chat
-    usemap[chat] = pair
-topics = topics.rstrip("|") + "]"
+recipients = "["
+for channel in mirrors:
+    logger.info("Channel: %s with blob '%s'" % (channel, mirrors[channel]))
+    try:
+        chat = skype.FindChatUsingBlob(mirrors[channel])
+        recipients = chat.FriendlyName
+    except:
+        logger.info("Couldn't find Skype channel blob '%s'" % mirrors[channel])
+        continue
+    logger.info("Chat: %s, Recipients: %s" % (chat, recipients))
+    logger.info("Added '%s'" % chat)
+    recipients += cut_title(recipients) + "|"
+    usemap[channel] = chat
+    usemap[chat] = channel
+recipients = recipients.rstrip("|") + "]"
 
 load_mutes()
 
 bot = MirrorBot()
-print "Starting IRC bot..."
+logger.info("Starting IRC bot...")
 bot.start()
