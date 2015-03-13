@@ -38,7 +38,7 @@ from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.4.0"
+version = "0.4.1"
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ def save_mutes(channel):
     except:
         pass
 
-def skype_says(chat, msg, edited = False):
+def skype_says(chat, msg, edited=False):
     """Translate Skype messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
@@ -213,7 +213,7 @@ def skype_says(chat, msg, edited = False):
     elif msgtype == 'SAID':
         broadcast(name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw, usemap[chat])
 
-def skype_pm(chat, msg, edited = False):
+def skype_pm(chat, msg, group=False, edited=False):
     """Translate Skype private messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
@@ -227,10 +227,16 @@ def skype_pm(chat, msg, edited = False):
         edit_label = ""
 
     logger.info("%s: %s" % (chat, msg))
+
+    if group:
+        group = "[%s] " % group
+    else:
+        group = ""
+
     if msgtype == 'EMOTED':
-        bot.say(owner, emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw)
+        bot.say(owner, group + emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw)
     elif msgtype == 'SAID':
-        bot.say(owner, name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw)
+        bot.say(owner, group + name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw)
 
 def OnMessageStatus(Message, Status):
     """Skype message object listener"""
@@ -241,8 +247,13 @@ def OnMessageStatus(Message, Status):
     if Status == 'RECEIVED':
         if chat in usemap:
             skype_says(chat, Message)
-        elif pm_bridge and friend in friends:
-            skype_pm(chat, Message)
+        elif pm_bridge:
+            # Check if it's a group chat
+            if len(chat.Members) > 2:
+                skype_pm(chat, Message, group=chat.Topic)
+            # Or personal message
+            elif friend in friends:
+                skype_pm(chat, Message)
 
 def OnNotify(n):
     """Skype notification listener"""
@@ -256,9 +267,14 @@ def OnNotify(n):
                 chat = msg.Chat
                 user = msg.FromHandle
                 if chat in usemap:
-                    skype_says(chat, msg, edited = True)
-                elif pm_bridge and user in friends:
-                    skype_pm(chat, msg, edited = True)
+                    skype_says(chat, msg, edited=True)
+                elif pm_bridge:
+                    # Check if it's a group chat
+                    if len(chat.Members) > 2:
+                        skype_pm(chat, Message, group=chat.Topic, edited=True)
+                    # Or personal message
+                    elif user in friends:
+                        skype_pm(chat, Message, edited=True)
             del edmsgs[params[1]]
 
 def decode_irc(raw, preferred_encs = preferred_encodings):
