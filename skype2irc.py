@@ -38,7 +38,7 @@ from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.3.1"
+version = "0.4.0"
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ bot = None
 mutedl = {}
 lastsaid = {}
 edmsgs = {}
+friends = []
 
 pinger = None
 bot = None
@@ -212,14 +213,36 @@ def skype_says(chat, msg, edited = False):
     elif msgtype == 'SAID':
         broadcast(name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw, usemap[chat])
 
+def skype_pm(chat, msg, edited = False):
+    """Translate Skype private messages to IRC"""
+    raw = msg.Body
+    msgtype = msg.Type
+    send = chat.SendMessage
+    senderDisplay = msg.FromDisplayName
+    senderHandle = msg.FromHandle
+
+    if edited:
+        edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full = False)
+    else:
+        edit_label = ""
+
+    logger.info("%s: %s" % (chat, msg))
+    if msgtype == 'EMOTED':
+        bot.say(owner, emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw)
+    elif msgtype == 'SAID':
+        bot.say(owner, name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw)
+
 def OnMessageStatus(Message, Status):
     """Skype message object listener"""
     chat = Message.Chat
+    friend = Message.FromHandle
 
     # Only react to defined chats
-    if chat in usemap:
-        if Status == 'RECEIVED':
+    if Status == 'RECEIVED':
+        if chat in usemap:
             skype_says(chat, Message)
+        elif pm_bridge and friend in friends:
+            skype_pm(chat, Message)
 
 def OnNotify(n):
     """Skype notification listener"""
@@ -231,8 +254,11 @@ def OnNotify(n):
             msg = skype.Message(params[1])
             if msg:
                 chat = msg.Chat
+                user = msg.FromHandle
                 if chat in usemap:
                     skype_says(chat, msg, edited = True)
+                elif pm_bridge and user in friends:
+                    skype_pm(chat, msg, edited = True)
             del edmsgs[params[1]]
 
 def decode_irc(raw, preferred_encs = preferred_encodings):
@@ -395,12 +421,27 @@ class MirrorBot(SingleServerIRCBot):
         """React to ON, OF(F), ST(ATUS), IN(FO) etc for switching gateway (from IRC side only)"""
         source = event.source().split('!')[0]
         raw = event.arguments()[0].decode('utf-8', 'ignore')
+        logger.info("Source: %s" % source)
+        logger.info("Raw: %s" % raw)
+
+        # Bridge private messages to Skype username
+        if pm_bridge and source == owner:
+            args = raw.split(':', 1)
+            friend = args[0]
+            if friend in friends:
+                logger.info("Sending to %s" % friend)
+                chat = skype.CreateChatWith(friend)
+                logger.debug("Chat: %s" % chat)
+                chat.SendMessage(args[1])
+                return
+
+        # Not a private message addressed to someone, check for commands
         args = raw.split()
         if not args:
             return
         two = args[0][:2].upper()
-        
-        if two == 'ST': # STATUS
+
+        if two == 'ST':  # STATUS
             muteds = []
             brdcsts = []
             for channel in mirrors.keys():
@@ -413,14 +454,14 @@ class MirrorBot(SingleServerIRCBot):
             if len(muteds) > 0:
                 bot.say(source, "You're silent to Skype on " + ", ".join(muteds))
                 
-        if two == 'OF': # OFF
+        if two == 'OF':  # OFF
             for channel in mirrors.keys():
                 if source not in mutedl[channel]:
                     mutedl[channel].append(source)
                     save_mutes(channel)
             bot.say(source, "You're silent to Skype now")
                 
-        elif two == 'ON': # ON
+        elif two == 'ON':  # ON
             for channel in mirrors.keys():
                 if source in mutedl[channel]:
                     mutedl[channel].remove(source)
@@ -454,7 +495,20 @@ class MirrorBot(SingleServerIRCBot):
                  msg += desc + '\n'
             msg = msg.rstrip("\n")
             bot.say(source, msg)
-            
+
+        elif two == 'FR':  # Friends
+            if len(args) > 1:
+                result = []
+                for friend in skype.Friends:
+                    if args[1] in friend.Handle or args[1] in friend.FullName:
+                        result.append("%s (%s)" % (get_nick_decorated(friend.Handle), friend.FullName))
+                bot.say(source, ", ".join(result))
+            else:
+                result = []
+                for friend in skype.Friends:
+                    result.append("%s (%s)" % (get_nick_decorated(friend.Handle), friend.FullName))
+                bot.say(source, ", ".join(result))
+
         elif two in ('?', 'HE', 'HI', 'WT'): # HELP
             bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\nDetails: https://github.com/caktux/skype2irc#readme")
 
@@ -553,6 +607,10 @@ for channel in mirrors:
     usemap[channel] = chat
     usemap[chat] = channel
 recipients = recipients.rstrip("|") + "]"
+
+# Load friend users
+for user in skype.Friends:
+    friends.append(user.Handle)
 
 load_mutes()
 
