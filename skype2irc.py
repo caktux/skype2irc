@@ -38,7 +38,7 @@ from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.4.1"
+version = "0.4.2"
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ mutedl = {}
 lastsaid = {}
 edmsgs = {}
 friends = []
+chats = {}
 
 pinger = None
 bot = None
@@ -213,6 +214,8 @@ def skype_says(chat, msg, edited=False):
     elif msgtype == 'SAID':
         broadcast(name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw, usemap[chat])
 
+    msg.MarkAsSeen()
+
 def skype_pm(chat, msg, group=False, edited=False):
     """Translate Skype private messages to IRC"""
     raw = msg.Body
@@ -222,7 +225,7 @@ def skype_pm(chat, msg, group=False, edited=False):
     senderHandle = msg.FromHandle
 
     if edited:
-        edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full = False)
+        edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full=False) + " "
     else:
         edit_label = ""
 
@@ -234,47 +237,74 @@ def skype_pm(chat, msg, group=False, edited=False):
         group = ""
 
     if msgtype == 'EMOTED':
-        bot.say(owner, group + emote_char + " " + get_nick_decorated(senderHandle) + edit_label + " " + raw)
+        bot.say(owner, group + emote_char + " " + get_nick_decorated(senderHandle) + edit_label + raw)
     elif msgtype == 'SAID':
-        bot.say(owner, group + name_start + get_nick_decorated(senderHandle) + edit_label + name_end + " " + raw)
+        bot.say(owner, group + get_nick_decorated(senderHandle) + ": " + edit_label + raw)
 
-def OnMessageStatus(Message, Status):
-    """Skype message object listener"""
+    msg.MarkAsSeen()
+
+def RouteSkypeMessage(Message, edited=False):
     chat = Message.Chat
-    friend = Message.FromHandle
 
     # Only react to defined chats
-    if Status == 'RECEIVED':
-        if chat in usemap:
-            skype_says(chat, Message)
-        elif pm_bridge:
-            # Check if it's a group chat
-            if len(chat.Members) > 2:
-                skype_pm(chat, Message, group=chat.Topic)
-            # Or personal message
-            elif friend in friends:
-                skype_pm(chat, Message)
+    if chat in usemap:
+        skype_says(chat, Message)
+
+    # Or personal bridge
+    elif pm_bridge:
+        friend = Message.FromHandle
+        # Check if it's a P2P group chat
+        try:
+            try:
+                topic = chat.Topic
+            except:
+                topic = chat.Name
+            isP2P = True
+        except:
+            isP2P = False
+
+        if isP2P:
+            # Store the chat object for future use
+            chats[topic] = chat
+            logging.info("Stored %s" % chat)
+
+            # Send message to IRC
+            skype_pm(chat, Message, group=topic, edited=edited)
+
+        # Personal message
+        elif friend in friends:
+            skype_pm(chat, Message, edited=edited)
+
+# def OnMessageStatus(Message, Status):
+#     """Skype message object listener"""
+#     # logging.info("From MessageStatus' chat: %s" % chat)
+#     # logging.info("chat.Name: %s" % chat.Name)
+#     # logging.info("Status: %s" % Status)
+
+#     if Status == 'RECEIVED':
+#         RouteSkypeMessage(Message)
 
 def OnNotify(n):
     """Skype notification listener"""
     params = n.split()
+    logging.info("Notification: %s (%s) [%s]" % (params[0], len(params), ", ".join(params)))
+
+    for msg in skype.MissedMessages:
+        # Mark own MissedMessages as seen...
+        if msg.FromHandle == owner:
+            msg.MarkAsSeen()
+            continue
+        logging.info("MissedMessage (%s): <%s> %s" % (msg.Type, msg.FromHandle, msg.Body))
+        RouteSkypeMessage(msg)
+        msg.MarkAsSeen()
+
     if len(params) >= 4 and params[0] == "CHATMESSAGE":
         if params[2] == "EDITED_TIMESTAMP":
             edmsgs[params[1]] = True
         elif params[1] in edmsgs and params[2] == "BODY":
             msg = skype.Message(params[1])
             if msg:
-                chat = msg.Chat
-                user = msg.FromHandle
-                if chat in usemap:
-                    skype_says(chat, msg, edited=True)
-                elif pm_bridge:
-                    # Check if it's a group chat
-                    if len(chat.Members) > 2:
-                        skype_pm(chat, Message, group=chat.Topic, edited=True)
-                    # Or personal message
-                    elif user in friends:
-                        skype_pm(chat, Message, edited=True)
+                RouteSkypeMessage(msg, edited=True)
             del edmsgs[params[1]]
 
 def decode_irc(raw, preferred_encs = preferred_encodings):
@@ -442,14 +472,37 @@ class MirrorBot(SingleServerIRCBot):
 
         # Bridge private messages to Skype username
         if pm_bridge and source == owner:
-            args = raw.split(':', 1)
-            friend = args[0]
-            if friend in friends:
-                logger.info("Sending to %s" % friend)
-                chat = skype.CreateChatWith(friend)
-                logger.debug("Chat: %s" % chat)
-                chat.SendMessage(args[1])
-                return
+            # Addressed to a group chat by topic or name
+            if raw.startswith('['):
+                args = raw.split("]", 1)
+                topic = args[0][1:]
+                logging.info("Sending to: %s" % topic)
+                if topic in chats:
+                    chat = chats[topic]
+                    msg = args[1].strip()
+                    # Strip trailing :
+                    if msg.startswith(':'):
+                        msg = msg[1:]
+                    logging.info("%s: %s" % (chat, msg))
+
+                    try:
+                        # chatobj = skype.Chat(Name=chat.Name)
+                        # logging.info("Chat object: %s" % chatobj)
+                        logging.info("Trying to send to %s" % chat.Name)
+                        chat.SendMessage(msg)
+                    except:
+                        bot.say(source, "Stupid Skype API...")
+
+            # Addressed to a friend
+            else:
+                args = raw.split(':', 1)
+                friend = args[0]
+                if friend in friends:
+                    logger.info("Sending to %s" % friend)
+                    chat = skype.CreateChatWith(friend)
+                    logger.debug("Chat: %s" % chat)
+                    chat.SendMessage(args[1])
+                    return
 
         # Not a private message addressed to someone, check for commands
         args = raw.split()
@@ -524,6 +577,15 @@ class MirrorBot(SingleServerIRCBot):
                 for friend in skype.Friends:
                     result.append("%s (%s)" % (get_nick_decorated(friend.Handle), friend.FullName))
                 bot.say(source, ", ".join(result))
+
+        elif two == 'CH':  # Channels
+            names = []
+            if len(chats) > 0:
+                for name in chats:
+                    names.append(name)
+                bot.say(source, "Names: [%s]" % "], [".join(names))
+            else:
+                bot.say(source, "No chat stored, wait or send a message in the group chat")
 
         elif two in ('?', 'HE', 'HI', 'WT'): # HELP
             bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\nDetails: https://github.com/caktux/skype2irc#readme")
@@ -600,7 +662,7 @@ elif not skype.Client.IsRunning:
 
 try:
     skype.Attach()
-    skype.OnMessageStatus = OnMessageStatus
+    # skype.OnMessageStatus = OnMessageStatus
     skype.OnNotify = OnNotify
 except:
     logger.info('Failed to connect! You have to log in to your Skype instance and enable access to Skype for Skype4Py! Quitting...')
