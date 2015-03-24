@@ -13,6 +13,10 @@ FEATURES
    * Direct messages to bot
       * Turn mirroring to Skype `ON` or `OFF` for the user, get user's present `STATUS`
       * Query for Skype users mirrored to IRC channel using `INFO #channel`
+   * Search friends' usernames/full name with `FRIEND <part of name/username>` (shorthand `FR`)
+   * Get a friend's online status and infos with `ABOUT <part of name/username>` (shorthand `AB`)
+   * List stored channel topic/names with `CHANNELS` (shorthand `CH`)
+
 * **Private messages bridge, no need to run Skype on your machine anymore!**
 
 **This bot deliberately prefers IRC to Skype!**

@@ -27,18 +27,19 @@
 #  Skype message edit code from Kiantis fork https://github.com/Kiantis/skype2irc
 
 import sys, signal
-import time, datetime
+import time
 import string, textwrap
 import os.path
 import logging
 import logging.config
 import pprint
+from datetime import datetime, timedelta
 
 from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.4.2"
+version = "0.4.3"
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def broadcast(text, channel):
 
 def get_relative_time(dt, display_full = True):
     """Returns relative time compared to now from timestamp"""
-    now = datetime.datetime.now()
+    now = datetime.now()
     delta_time = now - dt
 
     delta =  delta_time.days * DAY + delta_time.seconds 
@@ -291,12 +292,11 @@ def OnNotify(n):
 
     for msg in skype.MissedMessages:
         # Mark own MissedMessages as seen...
-        if msg.FromHandle == owner:
+        if msg.FromHandle in (skype.CurrentUserHandle, owner):
             msg.MarkAsSeen()
             continue
         logging.info("MissedMessage (%s): <%s> %s" % (msg.Type, msg.FromHandle, msg.Body))
         RouteSkypeMessage(msg)
-        msg.MarkAsSeen()
 
     if len(params) >= 4 and params[0] == "CHATMESSAGE":
         if params[2] == "EDITED_TIMESTAMP":
@@ -492,17 +492,25 @@ class MirrorBot(SingleServerIRCBot):
                         chat.SendMessage(msg)
                     except:
                         bot.say(source, "Stupid Skype API...")
+                else:
+                    bot.say(source, "%s not found in chat list" % topic)
 
             # Addressed to a friend
-            else:
+            elif ':' in raw:
                 args = raw.split(':', 1)
                 friend = args[0]
                 if friend in friends:
-                    logger.info("Sending to %s" % friend)
-                    chat = skype.CreateChatWith(friend)
-                    logger.debug("Chat: %s" % chat)
-                    chat.SendMessage(args[1])
-                    return
+                    try:
+                        logger.info("Sending to %s" % friend)
+                        chat = skype.CreateChatWith(friend)
+                        logger.debug("Chat: %s" % chat)
+                        chat.SendMessage(args[1])
+                        return
+                    except Exception as e:
+                        bot.say(source, "Error sending to %s: %s" % (friend, e))
+                else:
+                    bot.say(source, "%s not found in friend list" % friend)
+
 
         # Not a private message addressed to someone, check for commands
         args = raw.split()
@@ -522,21 +530,21 @@ class MirrorBot(SingleServerIRCBot):
                 bot.say(source, "You're mirrored to Skype from " + ", ".join(brdcsts))
             if len(muteds) > 0:
                 bot.say(source, "You're silent to Skype on " + ", ".join(muteds))
-                
+
         if two == 'OF':  # OFF
             for channel in mirrors.keys():
                 if source not in mutedl[channel]:
                     mutedl[channel].append(source)
                     save_mutes(channel)
             bot.say(source, "You're silent to Skype now")
-                
+
         elif two == 'ON':  # ON
             for channel in mirrors.keys():
                 if source in mutedl[channel]:
                     mutedl[channel].remove(source)
                     save_mutes(channel)
             bot.say(source, "You're mirrored to Skype now")
-                
+
         elif two == 'IN' and len(args) > 1 and args[1] in mirrors: # INFO
             chat = usemap[args[1]]
             members = chat.Members
@@ -553,7 +561,7 @@ class MirrorBot(SingleServerIRCBot):
                 last_online = user.LastOnline
                 timestr = ""
                 if last_online > 0:
-                    timestr += " --- " + get_relative_time(datetime.datetime.fromtimestamp(last_online))
+                    timestr += " --- " + get_relative_time(datetime.fromtimestamp(last_online))
                 mood = user.MoodText
                 if len(mood) > 0:
                     desc += ": \"" + mood + "\""
@@ -578,6 +586,45 @@ class MirrorBot(SingleServerIRCBot):
                     result.append("%s (%s)" % (get_nick_decorated(friend.Handle), friend.FullName))
                 bot.say(source, ", ".join(result))
 
+        elif two == 'AB':  # About friend, returns online status and basic infos
+            if len(args) > 1:
+                for friend in skype.Friends:
+                    if args[1] in friend.Handle or args[1] in friend.FullName:
+                        last_online = friend.LastOnline
+                        timestr = "Last seen: "
+                        if last_online > 0:
+                            timestr += get_relative_time(datetime.fromtimestamp(last_online))
+                        else:
+                            timestr += "N/A"
+                        timezone = ""
+                        if friend.Timezone < 86400:
+                            timezone = str(timedelta(seconds=friend.Timezone)) + " from GMT"
+                        city = " - " if timezone else ""
+                        if friend.City:
+                            city += friend.City
+                        if friend.Country:
+                            country = ", " if friend.City else ""
+                            country += friend.Country
+                        about = ""
+                        if friend.About:
+                            about = " - %s" % friend.About
+                        mood = ""
+                        if friend.MoodText:
+                            mood = " - %s" % friend.MoodText
+                        bot.say(source, "%s (%s): %s - %s - %s%s%s%s%s" % (
+                            get_nick_decorated(friend.Handle),
+                            friend.FullName,
+                            friend.OnlineStatus,
+                            timestr,
+                            timezone,
+                            city,
+                            country,
+                            about,
+                            mood
+                            ))
+            else:
+                bot.say(source, "Please provide a friend's username.")
+
         elif two == 'CH':  # Channels
             names = []
             if len(chats) > 0:
@@ -588,7 +635,7 @@ class MirrorBot(SingleServerIRCBot):
                 bot.say(source, "No chat stored, wait or send a message in the group chat")
 
         elif two in ('?', 'HE', 'HI', 'WT'): # HELP
-            bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\nDetails: https://github.com/caktux/skype2irc#readme")
+            bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\n * FR <part of name/username> --- Search for a friend's username\n * AB <part of name/username> --- Get online status and infos of a friend\n * CH --- List stored channel topics/names\nDetails: https://github.com/caktux/skype2irc#readme")
 
 def configure_logging(loggerlevels=':INFO', verbosity=1):
     logconfig = dict(
