@@ -84,8 +84,7 @@ emote_format = "* %s ".decode('UTF-8')  # "✱ %s "
 
 muted_list_filename = nick + '.%s.muted'
 
-topics = ""
-
+channels = []
 usemap = {}
 bot = None
 mutedl = {}
@@ -357,7 +356,7 @@ class MirrorBot(SingleServerIRCBot):
     """Create IRC bot class"""
 
     def __init__(self):
-        SingleServerIRCBot.__init__(self, servers, nick, (botname + " " + topics).encode("UTF-8"), reconnect_interval)
+        SingleServerIRCBot.__init__(self, servers, nick, (botname + " " + channels).encode("UTF-8"), reconnect_interval)
 
     def start(self):
         """Override default start function to avoid starting/stalling the bot with no connection"""
@@ -457,7 +456,7 @@ class MirrorBot(SingleServerIRCBot):
         msg = msg.rstrip("\n")
         if target in usemap:
             # logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
-            logger.info(target + ": " + msg)
+            logger.info("%s: %s" % (target, msg))
             broadcast(msg, usemap[target])
         else:
             logger.info("No Skype channel for %s" % target)
@@ -473,7 +472,8 @@ class MirrorBot(SingleServerIRCBot):
         if target in usemap and args[0] == 'ACTION' and len(args) == 2:
             # An emote/action message has been sent to us
             msg = emote_format % source + decode_irc(args[1]) + "\n"
-            logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
+            # logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
+            logger.info("%s: %s" % (target, msg))
             usemap[target].SendMessage(msg)
 
     def on_privmsg(self, connection, event):
@@ -646,13 +646,14 @@ class MirrorBot(SingleServerIRCBot):
                 bot.say(source, "No chat stored, wait or send a message in the group chat")
 
         elif two in ('?', 'HE', 'HI', 'WT'):  # HELP
-            bot.say(source, "%s %s %s\n\
+            bot.say(source, textwrap.dedent("""\
+                %s %s %s\n\
                 * ON/OFF/STATUS --- Trigger mirroring to Skype\n\
                 * INFO #channel --- Display list of users from relevant Skype chat\n\
                 * FR <part of name/username> --- Search for a friend's username\n\
                 * AB <part of name/username> --- Get online status and infos of a friend\n\
                 * CH --- List stored channel topics/names\n\
-                Details: https://github.com/caktux/skype2irc#readme" % (botname, version, topics))
+                Details: https://github.com/caktux/skype2irc#readme""" % (botname, version, channels)))
 
 def configure_logging(loggerlevels=':INFO', verbosity=1):
     logconfig = dict(
@@ -734,21 +735,25 @@ except:
 
 logger.info('Skype API initialised.')
 
-recipients = "["
 for channel in mirrors:
     logger.info("Channel: %s with blob '%s'" % (channel, mirrors[channel]))
     try:
         chat = skype.FindChatUsingBlob(mirrors[channel])
         recipients = chat.FriendlyName
+        channels.append(channel)
     except:
         logger.info("Couldn't find Skype channel blob '%s'" % mirrors[channel])
         continue
     logger.info("Chat: %s, Recipients: %s" % (chat, recipients))
     logger.info("Added '%s'" % chat)
-    recipients += cut_title(recipients) + "|"
+    # recipients += cut_title(recipients) + "|"
     usemap[channel] = chat
     usemap[chat] = channel
-recipients = recipients.rstrip("|") + "]"
+
+if channels:
+    channels = "[%s]" % "|".join(channels)
+else:
+    channels = ""
 
 # Load friend users
 for user in skype.Friends:
