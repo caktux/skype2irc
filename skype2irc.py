@@ -13,7 +13,7 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -26,14 +26,17 @@
 #  Time until a date http://stackoverflow.com/questions/1580227/find-time-until-a-date-in-python
 #  Skype message edit code from Kiantis fork https://github.com/Kiantis/skype2irc
 
-import sys, signal
+import sys
+import signal
 import time
-import string, textwrap
+import string
+import textwrap
 import os.path
 import logging
 import logging.config
 import pprint
-from datetime import datetime, timedelta
+from datetime import datetime
+from datetime import timedelta
 
 from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
@@ -47,11 +50,26 @@ if os.path.isfile("config.py"):
     # provide path to configuration file as a command line parameter
     execfile('config.py')
 else:
-    # default configuration for testing purposes    
-    execfile('config.py.sample')
+    # default configuration for testing purposes and flake8
+    servers = [
+        ("irc.freenode.net", 6667),
+    ]
+
+    pm_bridge = False
+    owner = "YourIRCnickname"
+    nick = "skype-bot"
+    botname = "skype2irc"
+    password = None
+    vhost = False
+
+    mirrors = {
+        '#test': 'iWwCuTwsjoIglPL3Fbmc_BM95EyK3683btIvrV_B2lQN4agJGCX7-REKzMl7-ruRqvo2RIgcOkQ',
+    }
+
+    colors = True
 
 max_irc_msg_len = 442
-ping_interval = 2*60
+ping_interval = 2 * 60
 reconnect_interval = 30
 
 # to avoid flood excess
@@ -61,8 +79,8 @@ delay_btw_seqs = 0.15
 
 preferred_encodings = ["UTF-8", "CP1252", "ISO-8859-1"]
 
-name_format = "<%s> ".decode('UTF-8') # "◀%s▶ "
-emote_format = "* %s ".decode('UTF-8') # "✱ %s "
+name_format = "<%s> ".decode('UTF-8')  # "◀%s▶ "
+emote_format = "* %s ".decode('UTF-8')  # "✱ %s "
 
 muted_list_filename = nick + '.%s.muted'
 
@@ -100,26 +118,26 @@ def broadcast(text, channel):
     else:
         channel.SendMessage(text)
 
-def get_relative_time(dt, display_full = True):
+def get_relative_time(dt, display_full=True):
     """Returns relative time compared to now from timestamp"""
     now = datetime.now()
     delta_time = now - dt
 
-    delta =  delta_time.days * DAY + delta_time.seconds 
+    delta = delta_time.days * DAY + delta_time.seconds
     minutes = delta / MINUTE
     hours = delta / HOUR
     days = delta / DAY
 
     if delta <= 0:
         return "in the future" if display_full else "!"
-    if delta < 1 * MINUTE: 
-      if delta == 1:
-          return "moment ago" if display_full else "1s"
-      else:
-          return str(delta) + (" seconds ago" if display_full else "s")
-    if delta < 2 * MINUTE:    
+    if delta < 1 * MINUTE:
+        if delta == 1:
+            return "moment ago" if display_full else "1s"
+        else:
+            return str(delta) + (" seconds ago" if display_full else "s")
+    if delta < 2 * MINUTE:
         return "a minute ago" if display_full else "1m"
-    if delta < 45 * MINUTE:    
+    if delta < 45 * MINUTE:
         return str(minutes) + (" minutes ago" if display_full else "m")
     if delta < 90 * MINUTE:
         return "an hour ago" if display_full else "1h"
@@ -127,7 +145,7 @@ def get_relative_time(dt, display_full = True):
         return str(hours) + (" hours ago" if display_full else "h")
     if delta < 48 * HOUR:
         return "yesterday" if display_full else "1d"
-    if delta < 30 * DAY:    
+    if delta < 30 * DAY:
         return str(days) + (" days ago" if display_full else "d")
     if delta < 12 * MONTH:
         months = delta / MONTH
@@ -136,11 +154,11 @@ def get_relative_time(dt, display_full = True):
         else:
             return str(months) + (" months ago" if display_full else "m")
     else:
-      years = days / 365.0
-      if  years <= 1:
-          return "one year ago" if display_full else "1y"
-      else:
-          return str(years) + (" years ago" if display_full else "y")
+        years = days / 365.0
+        if years <= 1:
+            return "one year ago" if display_full else "1y"
+        else:
+            return str(years) + (" years ago" if display_full else "y")
 
 def cut_title(title):
     """Cuts Skype chat title to be ok"""
@@ -153,7 +171,7 @@ def cut_title(title):
 
 def get_nick_color(s):
     colors = ["\x0305", "\x0304", "\x0303", "\x0309", "\x0302", "\x0312",
-              "\x0306",   "\x0313", "\x0310", "\x0311", "\x0307"]
+              "\x0306", "\x0313", "\x0310", "\x0311", "\x0307"]
     num = 0
     for i in s:
         num += ord(i)
@@ -199,12 +217,10 @@ def skype_says(chat, msg, edited=False):
     """Translate Skype messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
-    send = chat.SendMessage
-    senderDisplay = msg.FromDisplayName
     senderHandle = msg.FromHandle
 
     if edited:
-        edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full = False)
+        edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full=False)
     else:
         edit_label = ""
 
@@ -220,8 +236,6 @@ def skype_pm(chat, msg, group=False, edited=False):
     """Translate Skype private messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
-    send = chat.SendMessage
-    senderDisplay = msg.FromDisplayName
     senderHandle = msg.FromHandle
 
     if edited:
@@ -306,7 +320,7 @@ def OnNotify(n):
                 RouteSkypeMessage(msg, edited=True)
             del edmsgs[params[1]]
 
-def decode_irc(raw, preferred_encs = preferred_encodings):
+def decode_irc(raw, preferred_encs=preferred_encodings):
     """Heuristic IRC charset decoder"""
     changed = False
     for enc in preferred_encs:
@@ -323,7 +337,7 @@ def decode_irc(raw, preferred_encs = preferred_encodings):
             res = raw.decode(enc)
         except:
             res = raw.decode(enc, 'ignore')
-            #enc += "+IGNORE"
+            # enc += "+IGNORE"
     return res
 
 def signal_handler(signal, frame):
@@ -360,7 +374,7 @@ class MirrorBot(SingleServerIRCBot):
         logger.info("Nickname '%s' in use, adding underscore" % newnick)
         connection.nick(newnick)
 
-    def routine_ping(self, first_run = False):
+    def routine_ping(self, first_run=False):
         """Ping server to know when try to reconnect to a new server."""
         global pinger
         if not first_run and not self.pong_received:
@@ -376,7 +390,7 @@ class MirrorBot(SingleServerIRCBot):
         """React to pong"""
         self.pong_received = True
 
-    def say(self, target, msg, do_say = True):
+    def say(self, target, msg, do_say=True):
         """Send messages to channels/nicks"""
         target = target.lower()
         try:
@@ -388,19 +402,19 @@ class MirrorBot(SingleServerIRCBot):
                     irc_msg += "\r\n"
                     if target not in lastsaid.keys():
                         lastsaid[target] = 0
-                    while time.time()-lastsaid[target] < delay_btw_msgs:
+                    while time.time() - lastsaid[target] < delay_btw_msgs:
                         time.sleep(0.2)
-                    lastsaid[target]=time.time()
+                    lastsaid[target] = time.time()
                     if do_say:
                         self.connection.privmsg(target, irc_msg)
                     else:
                         self.connection.notice(target, irc_msg)
                     cur += 1
                     if cur % max_seq_msgs == 0:
-                        time.sleep(delay_btw_seqs) # to avoid flood excess
+                        time.sleep(delay_btw_seqs)  # to avoid flood excess
         except ServerNotConnectedError:
-            logger.info("{" +target + " " + msg+"} SKIPPED!")
-			
+            logger.info("{" + target + " " + msg + "} SKIPPED!")
+
     def notice(self, target, msg):
         """Send notices to channels/nicks"""
         self.say(self, target, msg, False)
@@ -413,12 +427,12 @@ class MirrorBot(SingleServerIRCBot):
         if vhost:
             bot.say("HostServ", "ON")
         # ensure handler is present exactly once by removing it before adding
-        self.connection.remove_global_handler("ctcp", self.handle_ctcp)            
+        self.connection.remove_global_handler("ctcp", self.handle_ctcp)
         self.connection.add_global_handler("ctcp", self.handle_ctcp)
         for pair in mirrors:
             connection.join(pair)
             logger.info("Joined " + pair)
-        self.routine_ping(first_run = True)
+        self.routine_ping(first_run=True)
 
     def on_pubmsg(self, connection, event):
         """React to channel messages"""
@@ -427,7 +441,7 @@ class MirrorBot(SingleServerIRCBot):
         target = event.target().lower()
         cmds = args[0].split()
         if cmds and cmds[0].rstrip(":,") == nick:
-            if len(cmds)==2:
+            if len(cmds) == 2:
                 if cmds[1].upper() == 'ON' and source in mutedl[target]:
                     mutedl[target].remove(source)
                     save_mutes(target)
@@ -456,7 +470,7 @@ class MirrorBot(SingleServerIRCBot):
         if target in mirrors.keys():
             if source in mutedl[target]:
                 return
-        if target in usemap and args[0]=='ACTION' and len(args) == 2:
+        if target in usemap and args[0] == 'ACTION' and len(args) == 2:
             # An emote/action message has been sent to us
             msg = emote_format % source + decode_irc(args[1]) + "\n"
             logger.info(cut_title(usemap[target].FriendlyName) + ": " + msg)
@@ -510,7 +524,6 @@ class MirrorBot(SingleServerIRCBot):
                 else:
                     bot.say(source, "%s not found in friend list" % friend)
 
-
         # Not a private message addressed to someone, check for commands
         args = raw.split()
         if not args:
@@ -544,7 +557,7 @@ class MirrorBot(SingleServerIRCBot):
                     save_mutes(channel)
             bot.say(source, "You're mirrored to Skype now")
 
-        elif two == 'IN' and len(args) > 1 and args[1] in mirrors: # INFO
+        elif two == 'IN' and len(args) > 1 and args[1] in mirrors:  # INFO
             chat = usemap[args[1]]
             members = chat.Members
             active = chat.ActiveMembers
@@ -568,7 +581,7 @@ class MirrorBot(SingleServerIRCBot):
                 userList.append(desc)
                 userList.sort()
             for desc in userList:
-                 msg += desc + '\n'
+                msg += desc + '\n'
             msg = msg.rstrip("\n")
             bot.say(source, msg)
 
@@ -619,8 +632,7 @@ class MirrorBot(SingleServerIRCBot):
                             city,
                             country,
                             about,
-                            mood
-                            ))
+                            mood))
             else:
                 bot.say(source, "Please provide a friend's username.")
 
@@ -633,8 +645,14 @@ class MirrorBot(SingleServerIRCBot):
             else:
                 bot.say(source, "No chat stored, wait or send a message in the group chat")
 
-        elif two in ('?', 'HE', 'HI', 'WT'): # HELP
-            bot.say(source, botname + " " + version + " " + topics + "\n * ON/OFF/STATUS --- Trigger mirroring to Skype\n * INFO #channel --- Display list of users from relevant Skype chat\n * FR <part of name/username> --- Search for a friend's username\n * AB <part of name/username> --- Get online status and infos of a friend\n * CH --- List stored channel topics/names\nDetails: https://github.com/caktux/skype2irc#readme")
+        elif two in ('?', 'HE', 'HI', 'WT'):  # HELP
+            bot.say(source, "%s %s %s\n\
+                * ON/OFF/STATUS --- Trigger mirroring to Skype\n\
+                * INFO #channel --- Display list of users from relevant Skype chat\n\
+                * FR <part of name/username> --- Search for a friend's username\n\
+                * AB <part of name/username> --- Get online status and infos of a friend\n\
+                * CH --- List stored channel topics/names\n\
+                Details: https://github.com/caktux/skype2irc#readme" % (botname, version, topics))
 
 def configure_logging(loggerlevels=':INFO', verbosity=1):
     logconfig = dict(
