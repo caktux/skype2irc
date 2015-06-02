@@ -42,7 +42,7 @@ from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.4.3"
+version = "0.4.4"
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ lastsaid = {}
 edmsgs = {}
 friends = []
 chats = {}
+pending = {}  # Pending friend requests by handle
 
 pinger = None
 bot = None
@@ -297,12 +298,21 @@ def RouteSkypeMessage(Message, edited=False):
 #     if Status == 'RECEIVED':
 #         RouteSkypeMessage(Message)
 
+def OnUserAuthorizationRequestReceived(User):
+    if pm_bridge:
+        handle = User.Handle
+        pending[handle] = User
+        bot.say(owner, "New friend request from %s, reply 'accept %s' or 'reject %s' to take action." %
+                (User.FullName, handle, handle))
+
 def OnNotify(n):
     """Skype notification listener"""
     params = n.split()
     logging.info("Notification: %s (%s) [%s]" % (params[0], len(params), ", ".join(params)))
 
-    for msg in skype.MissedMessages:
+    msgs = skype.MissedMessages[:]
+    msgs.reverse()
+    for msg in msgs:
         # Mark own MissedMessages as seen...
         if msg.FromHandle in (skype.CurrentUserHandle, owner):
             msg.MarkAsSeen()
@@ -318,6 +328,15 @@ def OnNotify(n):
             if msg:
                 RouteSkypeMessage(msg, edited=True)
             del edmsgs[params[1]]
+
+    # TODO - pending friend requests reminder at an interval
+    # if pm_bridge:
+    #     for User in skype.UsersWaitingAuthorization:
+    #         handle = User.Handle
+    #         if handle in pending:
+    #             pending[handle] = User
+    #             bot.say(owner, "Pending friend request from %s, reply 'accept %s' or 'reject %s' to take action." %
+    #                 (User.FullName, handle, handle))
 
 def decode_irc(raw, preferred_encs=preferred_encodings):
     """Heuristic IRC charset decoder"""
@@ -614,8 +633,10 @@ class MirrorBot(SingleServerIRCBot):
                         city = " - " if timezone else ""
                         if friend.City:
                             city += friend.City
+                        country = ""
                         if friend.Country:
-                            country = ", " if friend.City else ""
+                            if friend.City:
+                                country = ", "
                             country += friend.Country
                         about = ""
                         if friend.About:
@@ -635,6 +656,28 @@ class MirrorBot(SingleServerIRCBot):
                             mood))
             else:
                 bot.say(source, "Please provide a friend's username.")
+
+        elif two == "AC":  # Accept friend request
+            if len(args) > 1:
+                logger.info("budFriend = %s" % Skype4Py.budFriend)
+                if args[1] in pending:
+                    user = pending[args[1]]
+                    user.BuddyStatus = Skype4Py.budFriend
+                    friends.append(user.Handle)
+                else:
+                    bot.say(source, "No pending request from %s" % args[1])
+            else:
+                bot.say(source, "Please provide a pending request's username.")
+
+        elif two == "RE":  # Reject friend request
+            if len(args) > 1:
+                if args[1] in pending:
+                    user = pending[args[1]]
+                    user.BuddyStatus = Skype4Py.budNeverBeenFriend
+                else:
+                    bot.say(source, "No pending request from %s" % args[1])
+            else:
+                bot.say(source, "Please provide a pending request's username.")
 
         elif two == 'CH':  # Channels
             names = []
@@ -729,6 +772,7 @@ try:
     skype.Attach()
     # skype.OnMessageStatus = OnMessageStatus
     skype.OnNotify = OnNotify
+    skype.OnUserAuthorizationRequestReceived = OnUserAuthorizationRequestReceived
 except:
     logger.info('Failed to connect! You have to log in to your Skype instance and enable access to Skype for Skype4Py! Quitting...')
     sys.exit()
