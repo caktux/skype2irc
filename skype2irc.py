@@ -42,7 +42,7 @@ from ircbot import SingleServerIRCBot
 from irclib import ServerNotConnectedError
 from threading import Timer
 
-version = "0.4.4"
+version = "0.4.5"
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +262,7 @@ def RouteSkypeMessage(Message, edited=False):
 
     # Only react to defined chats
     if chat in usemap:
-        skype_says(chat, Message)
+        skype_says(chat, Message, edited=edited)
 
     # Or personal bridge
     elif pm_bridge:
@@ -318,7 +318,7 @@ def OnNotify(n):
             msg.MarkAsSeen()
             continue
         logging.info("MissedMessage (%s): <%s> %s" % (msg.Type, msg.FromHandle, msg.Body))
-        RouteSkypeMessage(msg)
+        RouteSkypeMessage("(%s) %s" % (get_relative_time(msg.Datetime), msg))
 
     if len(params) >= 4 and params[0] == "CHATMESSAGE":
         if params[2] == "EDITED_TIMESTAMP":
