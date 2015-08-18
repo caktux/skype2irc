@@ -219,13 +219,15 @@ def skype_says(chat, msg, edited=False, missed=False):
     msgtype = msg.Type
     senderHandle = msg.FromHandle
 
+    delta_time = datetime.now() - msg.Datetime
+    delta = delta_time.days * DAY + delta_time.seconds
+
     if edited:
         edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full=False)
+    elif missed and delta > 60:
+        edit_label = "(%s) " % get_relative_time(msg.Datetime)
     else:
         edit_label = ""
-
-    if missed:
-        edit_label += "(%s) " % get_relative_time(msg.Datetime)
 
     logger.info("%s: %s" % (chat, msg))
     if msgtype == 'EMOTED':
@@ -241,13 +243,15 @@ def skype_pm(chat, msg, group=False, edited=False, missed=False):
     msgtype = msg.Type
     senderHandle = msg.FromHandle
 
+    delta_time = datetime.now() - msg.Datetime
+    delta = delta_time.days * DAY + delta_time.seconds
+
     if edited:
         edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full=False) + " "
+    elif missed and delta > 60:
+        edit_label = "(%s) " % get_relative_time(msg.Datetime)
     else:
         edit_label = ""
-
-    if missed:
-        edit_label += "(%s) " % get_relative_time(msg.Datetime)
 
     logger.info("%s: %s" % (chat, msg))
 
