@@ -213,7 +213,7 @@ def save_mutes(channel):
     except:
         pass
 
-def skype_says(chat, msg, edited=False):
+def skype_says(chat, msg, edited=False, missed=False):
     """Translate Skype messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
@@ -224,6 +224,9 @@ def skype_says(chat, msg, edited=False):
     else:
         edit_label = ""
 
+    if missed:
+        edit_label += "(%s)" % get_relative_time(msg.Datetime)
+
     logger.info("%s: %s" % (chat, msg))
     if msgtype == 'EMOTED':
         broadcast(emote_format % (get_nick_decorated(senderHandle) + edit_label + " " + raw), usemap[chat])
@@ -232,7 +235,7 @@ def skype_says(chat, msg, edited=False):
 
     msg.MarkAsSeen()
 
-def skype_pm(chat, msg, group=False, edited=False):
+def skype_pm(chat, msg, group=False, edited=False, missed=False):
     """Translate Skype private messages to IRC"""
     raw = msg.Body
     msgtype = msg.Type
@@ -242,6 +245,9 @@ def skype_pm(chat, msg, group=False, edited=False):
         edit_label = " ✎".decode('UTF-8') + get_relative_time(msg.Datetime, display_full=False) + " "
     else:
         edit_label = ""
+
+    if missed:
+        edit_label += "(%s) " % get_relative_time(msg.Datetime)
 
     logger.info("%s: %s" % (chat, msg))
 
@@ -257,12 +263,12 @@ def skype_pm(chat, msg, group=False, edited=False):
 
     msg.MarkAsSeen()
 
-def RouteSkypeMessage(Message, edited=False):
+def RouteSkypeMessage(Message, edited=False, missed=False):
     chat = Message.Chat
 
     # Only react to defined chats
     if chat in usemap:
-        skype_says(chat, Message, edited=edited)
+        skype_says(chat, Message, edited=edited, missed=missed)
 
     # Or personal bridge
     elif pm_bridge:
@@ -283,11 +289,11 @@ def RouteSkypeMessage(Message, edited=False):
             logging.info("Stored %s" % chat)
 
             # Send message to IRC
-            skype_pm(chat, Message, group=topic, edited=edited)
+            skype_pm(chat, Message, group=topic, edited=edited, missed=missed)
 
         # Personal message
         elif friend in friends:
-            skype_pm(chat, Message, edited=edited)
+            skype_pm(chat, Message, edited=edited, missed=missed)
 
 # def OnMessageStatus(Message, Status):
 #     """Skype message object listener"""
@@ -318,7 +324,7 @@ def OnNotify(n):
             msg.MarkAsSeen()
             continue
         logging.info("MissedMessage (%s): <%s> %s" % (msg.Type, msg.FromHandle, msg.Body))
-        RouteSkypeMessage("(%s) %s" % (get_relative_time(msg.Datetime), msg))
+        RouteSkypeMessage(msg, missed=True)
 
     if len(params) >= 4 and params[0] == "CHATMESSAGE":
         if params[2] == "EDITED_TIMESTAMP":
