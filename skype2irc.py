@@ -225,7 +225,7 @@ def skype_says(chat, msg, edited=False, missed=False):
         edit_label = ""
 
     if missed:
-        edit_label += "(%s)" % get_relative_time(msg.Datetime)
+        edit_label += "(%s) " % get_relative_time(msg.Datetime)
 
     logger.info("%s: %s" % (chat, msg))
     if msgtype == 'EMOTED':
